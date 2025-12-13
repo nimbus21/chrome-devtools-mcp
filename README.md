@@ -408,6 +408,15 @@ The Chrome DevTools MCP server supports the following configuration option:
   If enabled, ignores errors relative to self-signed and expired certificates. Use with caution.
   - **Type:** boolean
 
+- **`--stealth`**
+  Enable stealth mode to avoid bot detection. Uses puppeteer-extra-plugin-stealth and adds anti-detection Chrome arguments.
+  - **Type:** boolean
+  - **Default:** `false`
+
+- **`--chromeArgs`/ `--chrome-args`**
+  Additional Chrome arguments to pass to the browser (comma-separated). Example: --chromeArgs="--disable-gpu,--no-sandbox"
+  - **Type:** string
+
 - **`--chromeArg`/ `--chrome-arg`**
   Additional arguments for Chrome. Only applies when Chrome is launched by chrome-devtools-mcp.
   - **Type:** array
