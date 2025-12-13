@@ -8,6 +8,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import puppeteerExtra from 'puppeteer-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+
 import {logger} from './logger.js';
 import type {
   Browser,
@@ -16,8 +19,6 @@ import type {
   Target,
 } from './third_party/index.js';
 import {puppeteer} from './third_party/index.js';
-import puppeteerExtra from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 
 // Add stealth plugin
 puppeteerExtra.use(StealthPlugin());
