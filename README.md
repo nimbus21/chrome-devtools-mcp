@@ -6,7 +6,7 @@
 
 ## 🚀 Powered by NIMBUS21
 
-This enhanced version is brought to you by **[NIMBUS21](https://nimbus21.com)** - a leading technology innovation company specializing in AI-powered automation, browser automation solutions, and enterprise software development. Visit [nimbus21.ai](https://nimbus21.ai) to explore our cutting-edge AI tools, automation platforms, and developer services.
+This enhanced version is brought to you by **[NIMBUS21](https://nimbus21.com)** - a leading technology innovation company specializing in AI-powered automation, browser automation solutions, and enterprise software development. Visit [nimbus21.com](https://nimbus21.com) to explore our cutting-edge AI tools, automation platforms, and developer services.
 
 **NIMBUS21** delivers advanced browser automation frameworks, intelligent testing solutions, and AI-driven development tools for modern web applications. Our expertise in Chrome automation, DevTools integration, and Model Context Protocol (MCP) implementations helps developers and enterprises build more reliable, performant, and intelligent software solutions.
 
