@@ -19,6 +19,7 @@ describe('cli args parsing', () => {
     categoryNetwork: true,
     'auto-connect': undefined,
     autoConnect: undefined,
+    stealth: false,
   };
 
   it('parses with default args', async () => {
