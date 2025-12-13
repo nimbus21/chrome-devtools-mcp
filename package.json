@@ -1,6 +1,6 @@
 {
   "name": "@nimbus21.ai/chrome-devtools-mcp",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "description": "MCP server for Chrome DevTools with stealth mode support",
   "type": "module",
   "bin": "./build/src/index.js",
@@ -40,6 +40,7 @@
   "homepage": "https://github.com/nimbus21/chrome-devtools-mcp#readme",
   "mcpName": "io.github.nimbus21/chrome-devtools-mcp",
   "dependencies": {
+    "puppeteer-core": "^24.33.0",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2"
   },
