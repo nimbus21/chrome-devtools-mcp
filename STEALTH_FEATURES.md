@@ -5,9 +5,11 @@ This fork of Chrome DevTools MCP adds **stealth mode** capabilities to bypass bo
 ## New Features
 
 ### 1. **Stealth Mode** (`--stealth`)
+
 Enables puppeteer-extra-plugin-stealth and adds anti-detection Chrome arguments to make browser automation undetectable.
 
 **What it does:**
+
 - Uses `puppeteer-extra` with `puppeteer-extra-plugin-stealth` plugin
 - Removes automation-related Chrome arguments
 - Adds anti-detection Chrome flags:
@@ -19,21 +21,25 @@ Enables puppeteer-extra-plugin-stealth and adds anti-detection Chrome arguments 
 - Removes `--enable-automation` flag
 
 ### 2. **Custom Chrome Arguments** (`--chromeArgs`)
+
 Pass any additional Chrome command-line arguments (comma-separated).
 
 ## Usage
 
 ### Basic Stealth Mode
+
 ```bash
 npx chrome-devtools-mcp@latest --stealth
 ```
 
 ### Stealth Mode with Custom Chrome Arguments
+
 ```bash
 npx chrome-devtools-mcp@latest --stealth --chromeArgs="--window-size=1920,1080,--user-agent=CustomAgent"
 ```
 
 ### Only Custom Arguments (without stealth plugin)
+
 ```bash
 npx chrome-devtools-mcp@latest --chromeArgs="--disable-gpu,--no-sandbox"
 ```
@@ -41,26 +47,26 @@ npx chrome-devtools-mcp@latest --chromeArgs="--disable-gpu,--no-sandbox"
 ## MCP Configuration
 
 ### Claude Code
+
 ```bash
 claude mcp add chrome-stealth npx chrome-devtools-mcp@latest -- --stealth
 ```
 
 Or manually edit `.claude/config.json`:
+
 ```json
 {
   "mcpServers": {
     "chrome-stealth": {
       "command": "npx",
-      "args": [
-        "chrome-devtools-mcp@latest",
-        "--stealth"
-      ]
+      "args": ["chrome-devtools-mcp@latest", "--stealth"]
     }
   }
 }
 ```
 
 ### With Custom Chrome Args
+
 ```json
 {
   "mcpServers": {
@@ -77,6 +83,7 @@ Or manually edit `.claude/config.json`:
 ```
 
 ### With Chromium Path
+
 ```json
 {
   "mcpServers": {
@@ -96,12 +103,14 @@ Or manually edit `.claude/config.json`:
 ## Technical Details
 
 ### Modified Files
+
 - `package.json` - Added `puppeteer-extra` and `puppeteer-extra-plugin-stealth` dependencies
 - `src/browser.ts` - Added stealth mode logic and custom Chrome args support
 - `src/cli.ts` - Added `--stealth` and `--chromeArgs` CLI options
 - `src/main.ts` - Pass stealth options to browser launcher
 
 ### How Stealth Mode Works
+
 1. **Puppeteer-Extra Plugin**: Uses `puppeteer-extra-plugin-stealth` which applies dozens of evasion techniques:
    - Removes `navigator.webdriver` flag
    - Masks Chrome headless detection
@@ -118,6 +127,7 @@ Or manually edit `.claude/config.json`:
 ## Testing
 
 Test stealth mode on bot-protected sites:
+
 ```bash
 # Navigate to bot-protected site
 npx chrome-devtools-mcp@latest --stealth
@@ -130,12 +140,12 @@ npx chrome-devtools-mcp@latest --stealth
 
 ## Comparison with Standard Chrome DevTools MCP
 
-| Feature | Standard | With Stealth |
-|---------|----------|--------------|
-| Bot Detection | ❌ Detected | ✅ Bypassed |
-| Performance | Fast | Slightly slower |
-| Dependencies | puppeteer-core | + puppeteer-extra |
-| Use Case | Development/Testing | Bot-protected sites |
+| Feature       | Standard            | With Stealth        |
+| ------------- | ------------------- | ------------------- |
+| Bot Detection | ❌ Detected         | ✅ Bypassed         |
+| Performance   | Fast                | Slightly slower     |
+| Dependencies  | puppeteer-core      | + puppeteer-extra   |
+| Use Case      | Development/Testing | Bot-protected sites |
 
 ## Use Cases
 
@@ -147,6 +157,7 @@ npx chrome-devtools-mcp@latest --stealth
 ## Credits
 
 Stealth implementation based on:
+
 - [puppeteer-extra](https://github.com/berstend/puppeteer-extra)
 - [puppeteer-extra-plugin-stealth](https://github.com/berstend/puppeteer-extra/tree/master/packages/puppeteer-extra-plugin-stealth)
 

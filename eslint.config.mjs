@@ -14,7 +14,12 @@ import tseslint from 'typescript-eslint';
 import localPlugin from './scripts/eslint_rules/local-plugin.js';
 
 export default defineConfig([
-  globalIgnores(['**/node_modules', '**/build/', 'scripts/prepare.js', 'scripts/post-build.js']),
+  globalIgnores([
+    '**/node_modules',
+    '**/build/',
+    'scripts/prepare.js',
+    'scripts/post-build.js',
+  ]),
   importPlugin.flatConfigs.typescript,
   {
     languageOptions: {
