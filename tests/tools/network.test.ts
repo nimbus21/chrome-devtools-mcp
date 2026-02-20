@@ -50,7 +50,7 @@ describe('network', () => {
         );
         const responseData = await response.handle('list_request', context);
         t.assert.snapshot?.(
-          stabilizeResponseOutput(getTextContent(responseData[0])),
+          stabilizeResponseOutput(getTextContent(responseData.content[0])),
         );
       });
     });
@@ -77,7 +77,7 @@ describe('network', () => {
         );
         const responseData = await response.handle('list_request', context);
         t.assert.snapshot?.(
-          stabilizeResponseOutput(getTextContent(responseData[0])),
+          stabilizeResponseOutput(getTextContent(responseData.content[0])),
         );
       });
     });
@@ -105,7 +105,9 @@ describe('network', () => {
       await withMcpContext(async (response, context) => {
         await context.setUpNetworkCollectorForTesting();
         const page = context.getSelectedPage();
-        await page.goto(server.getRoute('/redirect'));
+        await page.goto(server.getRoute('/redirect'), {
+          waitUntil: 'networkidle0',
+        });
         await listNetworkRequests.handler(
           {
             params: {
@@ -117,7 +119,7 @@ describe('network', () => {
         );
         const responseData = await response.handle('list_request', context);
         t.assert.snapshot?.(
-          stabilizeResponseOutput(getTextContent(responseData[0])),
+          stabilizeResponseOutput(getTextContent(responseData.content[0])),
         );
       });
     });
@@ -171,7 +173,7 @@ describe('network', () => {
         const responseData = await response.handle('get_request', context);
 
         t.assert.snapshot?.(
-          stabilizeResponseOutput(getTextContent(responseData[0])),
+          stabilizeResponseOutput(getTextContent(responseData.content[0])),
         );
       });
     });

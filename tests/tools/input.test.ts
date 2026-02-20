@@ -9,6 +9,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {describe, it} from 'node:test';
 
+import {McpResponse} from '../../src/McpResponse.js';
 import {
   click,
   hover,
@@ -17,6 +18,7 @@ import {
   fillForm,
   uploadFile,
   pressKey,
+  clickAt,
 } from '../../src/tools/input.js';
 import {parseKey} from '../../src/utils/keyboard.js';
 import {serverHooks} from '../server.js';
@@ -154,6 +156,55 @@ describe('input', () => {
         assert(handlerResolveTime > buttonChangeTime, 'Waited for navigation');
       });
     });
+
+    it('does not include snapshot by default', async () => {
+      await withMcpContext(async (response, context) => {
+        const page = context.getSelectedPage();
+        await page.setContent(
+          html`<button onclick="this.innerText = 'clicked';">test</button>`,
+        );
+        await context.createTextSnapshot();
+        await click.handler(
+          {
+            params: {
+              uid: '1_1',
+            },
+          },
+          response,
+          context,
+        );
+        assert.strictEqual(
+          response.responseLines[0],
+          'Successfully clicked on the element',
+        );
+        assert.strictEqual(response.snapshotParams, undefined);
+      });
+    });
+
+    it('includes snapshot if includeSnapshot is true', async () => {
+      await withMcpContext(async (response, context) => {
+        const page = context.getSelectedPage();
+        await page.setContent(
+          html`<button onclick="this.innerText = 'clicked';">test</button>`,
+        );
+        await context.createTextSnapshot();
+        await click.handler(
+          {
+            params: {
+              uid: '1_1',
+              includeSnapshot: true,
+            },
+          },
+          response,
+          context,
+        );
+        assert.strictEqual(
+          response.responseLines[0],
+          'Successfully clicked on the element',
+        );
+        assert.notStrictEqual(response.snapshotParams, undefined);
+      });
+    });
   });
 
   describe('hover', () => {
@@ -179,6 +230,67 @@ describe('input', () => {
         );
         assert.ok(response.includeSnapshot);
         assert.ok(await page.$('text/hovered'));
+      });
+    });
+  });
+
+  describe('click_at', () => {
+    it('clicks at coordinates', async () => {
+      await withMcpContext(async (response, context) => {
+        const page = context.getSelectedPage();
+        await page.setContent(
+          html`<div
+            style="width: 100px; height: 100px; background: red;"
+            onclick="this.innerText = 'clicked'"
+          ></div>`,
+        );
+        await context.createTextSnapshot();
+        await clickAt.handler(
+          {
+            params: {
+              x: 50,
+              y: 50,
+            },
+          },
+          response,
+          context,
+        );
+        assert.strictEqual(
+          response.responseLines[0],
+          'Successfully clicked at the coordinates',
+        );
+        assert.ok(response.includeSnapshot);
+        assert.ok(await page.$('text/clicked'));
+      });
+    });
+
+    it('double clicks at coordinates', async () => {
+      await withMcpContext(async (response, context) => {
+        const page = context.getSelectedPage();
+        await page.setContent(
+          html`<div
+            style="width: 100px; height: 100px; background: red;"
+            ondblclick="this.innerText = 'dblclicked'"
+          ></div>`,
+        );
+        await context.createTextSnapshot();
+        await clickAt.handler(
+          {
+            params: {
+              x: 50,
+              y: 50,
+              dblClick: true,
+            },
+          },
+          response,
+          context,
+        );
+        assert.strictEqual(
+          response.responseLines[0],
+          'Successfully double clicked at the coordinates',
+        );
+        assert.ok(response.includeSnapshot);
+        assert.ok(await page.$('text/dblclicked'));
       });
     });
   });
@@ -237,6 +349,138 @@ describe('input', () => {
           () => document.querySelector('select')!.value,
         );
         assert.strictEqual(selectedValue, 'v2');
+      });
+    });
+
+    it('fills out a textarea marked as combobox', async () => {
+      await withMcpContext(async (response, context) => {
+        const page = context.getSelectedPage();
+        await page.setContent(html`<textarea role="combobox" />`);
+        await context.createTextSnapshot();
+        await fill.handler(
+          {
+            params: {
+              uid: '1_1',
+              value: '1',
+            },
+          },
+          response,
+          context,
+        );
+        assert.strictEqual(
+          response.responseLines[0],
+          'Successfully filled out the element',
+        );
+        assert.ok(response.includeSnapshot);
+        assert.ok(
+          await page.evaluate(() => {
+            return document.body.querySelector('textarea')?.value === '1';
+          }),
+        );
+      });
+    });
+
+    it('fills out a textarea with long text', async () => {
+      await withMcpContext(async (response, context) => {
+        const page = context.getSelectedPage();
+        await page.setContent(html`<textarea />`);
+        await context.createTextSnapshot();
+        page.setDefaultTimeout(1000);
+        await fill.handler(
+          {
+            params: {
+              uid: '1_1',
+              value: '1'.repeat(3000),
+            },
+          },
+          response,
+          context,
+        );
+        assert.strictEqual(
+          response.responseLines[0],
+          'Successfully filled out the element',
+        );
+        assert.ok(response.includeSnapshot);
+        assert.ok(
+          await page.evaluate(() => {
+            return (
+              document.body.querySelector('textarea')?.value.length === 3_000
+            );
+          }),
+        );
+      });
+    });
+
+    it('reproduction: fill isolation', async () => {
+      await withMcpContext(async (_response, context) => {
+        const page = context.getSelectedPage();
+        await page.setContent(
+          html`<form>
+            <input
+              id="email"
+              value="user@test.com"
+            />
+            <input
+              id="password"
+              type="password"
+            />
+          </form>`,
+        );
+        await context.createTextSnapshot();
+
+        // Fill email
+        const response1 = new McpResponse();
+        await fill.handler(
+          {
+            params: {
+              uid: '1_1', // email input
+              value: 'new@test.com',
+            },
+          },
+          response1,
+          context,
+        );
+        assert.strictEqual(
+          response1.responseLines[0],
+          'Successfully filled out the element',
+        );
+
+        // Fill password
+        const response2 = new McpResponse();
+        await fill.handler(
+          {
+            params: {
+              uid: '1_2', // password input
+              value: 'secret',
+            },
+          },
+          response2,
+          context,
+        );
+        assert.strictEqual(
+          response2.responseLines[0],
+          'Successfully filled out the element',
+        );
+
+        // Verify values
+        const values = await page.evaluate(() => {
+          return {
+            email: (document.getElementById('email') as HTMLInputElement).value,
+            password: (document.getElementById('password') as HTMLInputElement)
+              .value,
+          };
+        });
+
+        assert.strictEqual(
+          values.email,
+          'new@test.com',
+          'Email should be updated correctly',
+        );
+        assert.strictEqual(
+          values.password,
+          'secret',
+          'Password should be updated correctly',
+        );
       });
     });
   });

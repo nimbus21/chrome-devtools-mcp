@@ -148,10 +148,11 @@ interface McpLaunchOptions {
     width: number;
     height: number;
   };
-  args?: string[];
+  chromeArgs?: string[];
+  ignoreDefaultChromeArgs?: string[];
   devtools: boolean;
   stealth?: boolean;
-  chromeArgs?: string[];
+  enableExtensions?: boolean;
 }
 
 export async function launch(options: McpLaunchOptions): Promise<Browser> {
@@ -175,14 +176,13 @@ export async function launch(options: McpLaunchOptions): Promise<Browser> {
   }
 
   const args: LaunchOptions['args'] = [
-    ...(options.args ?? []),
+    ...(options.chromeArgs ?? []),
     '--hide-crash-restore-bubble',
   ];
-
-  // Add custom Chrome arguments if provided
-  if (options.chromeArgs) {
-    args.push(...options.chromeArgs);
-  }
+  const ignoreDefaultArgs: LaunchOptions['ignoreDefaultArgs'] =
+    options.stealth
+      ? [...(options.ignoreDefaultChromeArgs ?? []), '--enable-automation']
+      : options.ignoreDefaultChromeArgs ?? false;
 
   // Add stealth-enhancing arguments if stealth mode is enabled
   if (options.stealth) {
@@ -214,7 +214,7 @@ export async function launch(options: McpLaunchOptions): Promise<Browser> {
     // Use puppeteer-extra with stealth plugin if stealth mode is enabled
     const puppeteerInstance = options.stealth ? puppeteerExtra : puppeteer;
 
-    const launchOptions: LaunchOptions = {
+    const browser = await puppeteerInstance.launch({
       channel: puppeteerChannel,
       targetFilter: makeTargetFilter(),
       executablePath,
@@ -223,17 +223,11 @@ export async function launch(options: McpLaunchOptions): Promise<Browser> {
       pipe: true,
       headless,
       args,
+      ignoreDefaultArgs: ignoreDefaultArgs,
       acceptInsecureCerts: options.acceptInsecureCerts,
       handleDevToolsAsPage: true,
-    };
-
-    // Add ignoreDefaultArgs when stealth is enabled to remove automation flags
-    if (options.stealth) {
-      launchOptions.ignoreDefaultArgs = ['--enable-automation'];
-    }
-
-    const browser = await puppeteerInstance.launch(launchOptions);
-
+      enableExtensions: options.enableExtensions,
+    });
     if (options.logFile) {
       // FIXME: we are probably subscribing too late to catch startup logs. We
       // should expose the process earlier or expose the getRecentLogs() getter.
@@ -242,7 +236,6 @@ export async function launch(options: McpLaunchOptions): Promise<Browser> {
     }
     if (options.viewport) {
       const [page] = await browser.pages();
-      // @ts-expect-error internal API for now.
       await page?.resize({
         contentWidth: options.viewport.width,
         contentHeight: options.viewport.height,

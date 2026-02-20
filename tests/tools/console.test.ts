@@ -37,8 +37,21 @@ describe('console', () => {
         );
         await listConsoleMessages.handler({params: {}}, response, context);
         const formattedResponse = await response.handle('test', context);
-        const textContent = getTextContent(formattedResponse[0]);
+        const textContent = getTextContent(formattedResponse.content[0]);
         assert.ok(textContent.includes('msgid=1 [error] This is an error'));
+      });
+    });
+
+    it('lists error objects', async t => {
+      await withMcpContext(async (response, context) => {
+        const page = await context.newPage();
+        await page.setContent(
+          '<script>console.error(new Error("This is an error"))</script>',
+        );
+        await listConsoleMessages.handler({params: {}}, response, context);
+        const formattedResponse = await response.handle('test', context);
+        const textContent = getTextContent(formattedResponse.content[0]);
+        t.assert.snapshot?.(textContent);
       });
     });
 
@@ -48,8 +61,8 @@ describe('console', () => {
         await page.setContent('<script>throw undefined;</script>');
         await listConsoleMessages.handler({params: {}}, response, context);
         const formattedResponse = await response.handle('test', context);
-        const textContent = getTextContent(formattedResponse[0]);
-        assert.ok(textContent.includes('msgid=1 [error] undefined (0 args)'));
+        const textContent = getTextContent(formattedResponse.content[0]);
+        assert.ok(textContent.includes('msgid=1 [error] Uncaught  (0 args)'));
       });
     });
 
@@ -66,7 +79,7 @@ describe('console', () => {
           await issuePromise;
           await listConsoleMessages.handler({params: {}}, response, context);
           const formattedResponse = await response.handle('test', context);
-          const textContent = getTextContent(formattedResponse[0]);
+          const textContent = getTextContent(formattedResponse.content[0]);
           assert.ok(
             textContent.includes(
               `msgid=1 [issue] An element doesn't have an autocomplete attribute (count: 1)`,
@@ -89,7 +102,7 @@ describe('console', () => {
           await listConsoleMessages.handler({params: {}}, response, context);
           {
             const formattedResponse = await response.handle('test', context);
-            const textContent = getTextContent(formattedResponse[0]);
+            const textContent = getTextContent(formattedResponse.content[0]);
             assert.ok(
               textContent.includes(
                 `msgid=1 [issue] An element doesn't have an autocomplete attribute (count: 1)`,
@@ -107,7 +120,7 @@ describe('console', () => {
           await anotherIssuePromise;
           {
             const formattedResponse = await response.handle('test', context);
-            const textContent = getTextContent(formattedResponse[0]);
+            const textContent = getTextContent(formattedResponse.content[0]);
             assert.ok(
               textContent.includes(
                 `msgid=2 [issue] An element doesn't have an autocomplete attribute (count: 1)`,
@@ -120,6 +133,8 @@ describe('console', () => {
   });
 
   describe('get_console_message', () => {
+    const server = serverHooks();
+
     it('gets a specific console message', async () => {
       await withMcpContext(async (response, context) => {
         const page = await context.newPage();
@@ -134,7 +149,7 @@ describe('console', () => {
           context,
         );
         const formattedResponse = await response.handle('test', context);
-        const textContent = getTextContent(formattedResponse[0]);
+        const textContent = getTextContent(formattedResponse.content[0]);
         assert.ok(
           textContent.includes('msgid=1 [error] This is an error'),
           'Should contain console message body',
@@ -143,8 +158,6 @@ describe('console', () => {
     });
 
     describe('issues type', () => {
-      const server = serverHooks();
-
       it('gets issue details with node id parsing', async t => {
         await withMcpContext(async (response, context) => {
           const page = await context.newPage();
@@ -164,7 +177,7 @@ describe('console', () => {
             context,
           );
           const formattedResponse = await response2.handle('test', context);
-          t.assert.snapshot?.(getTextContent(formattedResponse[0]));
+          t.assert.snapshot?.(getTextContent(formattedResponse.content[0]));
         });
       });
       it('gets issue details with request id parsing', async t => {
@@ -219,13 +232,201 @@ describe('console', () => {
             context,
           );
           const formattedResponse = await response2.handle('test', context);
-          const rawText = getTextContent(formattedResponse[0]);
+          const rawText = getTextContent(formattedResponse.content[0]);
           const sanitizedText = rawText
             .replaceAll(/ID: \d+/g, 'ID: <ID>')
             .replaceAll(/reqid=\d+/g, 'reqid=<reqid>')
             .replaceAll(/localhost:\d+/g, 'hostname:port');
           t.assert.snapshot?.(sanitizedText);
         });
+      });
+    });
+
+    it('applies source maps to stack traces of console messages', async t => {
+      server.addRoute('/main.min.js', (_req, res) => {
+        res.setHeader('Content-Type', 'text/javascript');
+        res.statusCode = 200;
+        res.end(`function n(){console.warn("hello world")}function o(){n()}(function n(){o()})();
+          //# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJiYXIiLCJjb25zb2xlIiwid2FybiIsImZvbyIsIklpZmUiXSwic291cmNlcyI6WyIuL21haW4uanMiXSwic291cmNlc0NvbnRlbnQiOlsiXG5mdW5jdGlvbiBiYXIoKSB7XG4gIGNvbnNvbGUud2FybignaGVsbG8gd29ybGQnKTtcbn1cblxuZnVuY3Rpb24gZm9vKCkge1xuICBiYXIoKTtcbn1cblxuKGZ1bmN0aW9uIElpZmUoKSB7XG4gIGZvbygpO1xufSkoKTtcblxuIl0sIm1hcHBpbmdzIjoiQUFDQSxTQUFTQSxJQUNQQyxRQUFRQyxLQUFLLGNBQ2YsQ0FFQSxTQUFTQyxJQUNQSCxHQUNGLEVBRUEsU0FBVUksSUFDUkQsR0FDRCxFQUZEIiwiaWdub3JlTGlzdCI6W119
+          `);
+      });
+      server.addHtmlRoute(
+        '/index.html',
+        `<script src="${server.getRoute('/main.min.js')}"></script>`,
+      );
+
+      await withMcpContext(async (response, context) => {
+        const page = await context.newPage();
+        await page.goto(server.getRoute('/index.html'));
+
+        await getConsoleMessage.handler(
+          {params: {msgid: 1}},
+          response,
+          context,
+        );
+        const formattedResponse = await response.handle('test', context);
+        const rawText = getTextContent(formattedResponse.content[0]);
+
+        t.assert.snapshot?.(rawText);
+      });
+    });
+
+    it('applies source maps to stack traces of uncaught exceptions', async t => {
+      server.addRoute('/main.min.js', (_req, res) => {
+        res.setHeader('Content-Type', 'text/javascript');
+        res.statusCode = 200;
+        res.end(`function n(){throw new Error("b00m!")}function o(){n()}(function n(){o()})();
+          //# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJiYXIiLCJFcnJvciIsImZvbyIsIklpZmUiXSwic291cmNlcyI6WyIuL21haW4uanMiXSwic291cmNlc0NvbnRlbnQiOlsiXG5mdW5jdGlvbiBiYXIoKSB7XG4gIHRocm93IG5ldyBFcnJvcignYjAwbSEnKTtcbn1cblxuZnVuY3Rpb24gZm9vKCkge1xuICBiYXIoKTtcbn1cblxuKGZ1bmN0aW9uIElpZmUoKSB7XG4gIGZvbygpO1xufSkoKTtcblxuIl0sIm1hcHBpbmdzIjoiQUFDQSxTQUFTQSxJQUNQLE1BQU0sSUFBSUMsTUFBTSxRQUNsQixDQUVBLFNBQVNDLElBQ1BGLEdBQ0YsRUFFQSxTQUFVRyxJQUNSRCxHQUNELEVBRkQiLCJpZ25vcmVMaXN0IjpbXX0=
+        `);
+      });
+      server.addHtmlRoute(
+        '/index.html',
+        `<script src="${server.getRoute('/main.min.js')}"></script>`,
+      );
+
+      await withMcpContext(async (response, context) => {
+        const page = await context.newPage();
+        await page.goto(server.getRoute('/index.html'));
+
+        await getConsoleMessage.handler(
+          {params: {msgid: 1}},
+          response,
+          context,
+        );
+        const formattedResponse = await response.handle('test', context);
+        const rawText = getTextContent(formattedResponse.content[0]);
+
+        t.assert.snapshot?.(rawText);
+      });
+    });
+
+    it('applies source maps to stack traces of Error object console.log arguments', async t => {
+      server.addRoute('/main.min.js', (_req, res) => {
+        res.setHeader('Content-Type', 'text/javascript');
+        res.statusCode = 200;
+        res.end(`function n(){throw new Error("b00m!")}function o(){n()}(function n(){try{o()}catch(n){console.log("An error happened:",n)}})();
+          //# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJiYXIiLCJFcnJvciIsImZvbyIsIklpZmUiLCJlIiwiY29uc29sZSIsImxvZyJdLCJzb3VyY2VzIjpbIi4vbWFpbi5qcyJdLCJzb3VyY2VzQ29udGVudCI6WyJcbmZ1bmN0aW9uIGJhcigpIHtcbiAgdGhyb3cgbmV3IEVycm9yKCdiMDBtIScpO1xufVxuXG5mdW5jdGlvbiBmb28oKSB7XG4gIGJhcigpO1xufVxuXG4oZnVuY3Rpb24gSWlmZSgpIHtcbiAgdHJ5IHtcbiAgICBmb28oKTtcbiAgfSBjYXRjaCAoZSkge1xuICAgIGNvbnNvbGUubG9nKCdBbiBlcnJvciBoYXBwZW5lZDonLCBlKTtcbiAgfVxufSkoKTtcblxuIl0sIm1hcHBpbmdzIjoiQUFDQSxTQUFTQSxJQUNQLE1BQU0sSUFBSUMsTUFBTSxRQUNsQixDQUVBLFNBQVNDLElBQ1BGLEdBQ0YsRUFFQSxTQUFVRyxJQUNSLElBQ0VELEdBQ0YsQ0FBRSxNQUFPRSxHQUNQQyxRQUFRQyxJQUFJLHFCQUFzQkYsRUFDcEMsQ0FDRCxFQU5EIiwiaWdub3JlTGlzdCI6W119
+        `);
+      });
+      server.addHtmlRoute(
+        '/index.html',
+        `<script src="${server.getRoute('/main.min.js')}"></script>`,
+      );
+
+      await withMcpContext(async (response, context) => {
+        const page = await context.newPage();
+        await page.goto(server.getRoute('/index.html'));
+
+        await getConsoleMessage.handler(
+          {params: {msgid: 1}},
+          response,
+          context,
+        );
+        const formattedResponse = await response.handle('test', context);
+        const rawText = getTextContent(formattedResponse.content[0]);
+
+        t.assert.snapshot?.(rawText);
+      });
+    });
+
+    it('applies source maps to stack traces of uncaught exceptions with cause', async t => {
+      server.addRoute('/main.min.js', (_req, res) => {
+        res.setHeader('Content-Type', 'text/javascript');
+        res.statusCode = 200;
+        res.end(`function r(){throw new Error("b00m!")}function o(){try{r()}catch(r){throw new Error("bar failed",{cause:r})}}(function r(){try{o()}catch(r){throw new Error("foo failed",{cause:r})}})();
+          //# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJiYXIiLCJFcnJvciIsImZvbyIsImUiLCJjYXVzZSIsIklpZmUiXSwic291cmNlcyI6WyIuL21haW4uanMiXSwic291cmNlc0NvbnRlbnQiOlsiXG5mdW5jdGlvbiBiYXIoKSB7XG4gIHRocm93IG5ldyBFcnJvcignYjAwbSEnKTtcbn1cblxuZnVuY3Rpb24gZm9vKCkge1xuICB0cnkge1xuICAgIGJhcigpO1xuICB9IGNhdGNoIChlKSB7XG4gICAgdGhyb3cgbmV3IEVycm9yKCdiYXIgZmFpbGVkJywgeyBjYXVzZTogZSB9KTtcbiAgfVxufVxuXG4oZnVuY3Rpb24gSWlmZSgpIHtcbiAgdHJ5IHtcbiAgICBmb28oKTtcbiAgfSBjYXRjaCAoZSkge1xuICAgIHRocm93IG5ldyBFcnJvcignZm9vIGZhaWxlZCcsIHsgY2F1c2U6IGUgfSk7XG4gIH1cbn0pKCk7XG5cbiJdLCJtYXBwaW5ncyI6IkFBQ0EsU0FBU0EsSUFDUCxNQUFNLElBQUlDLE1BQU0sUUFDbEIsQ0FFQSxTQUFTQyxJQUNQLElBQ0VGLEdBQ0YsQ0FBRSxNQUFPRyxHQUNQLE1BQU0sSUFBSUYsTUFBTSxhQUFjLENBQUVHLE1BQU9ELEdBQ3pDLENBQ0YsRUFFQSxTQUFVRSxJQUNSLElBQ0VILEdBQ0YsQ0FBRSxNQUFPQyxHQUNQLE1BQU0sSUFBSUYsTUFBTSxhQUFjLENBQUVHLE1BQU9ELEdBQ3pDLENBQ0QsRUFORCIsImlnbm9yZUxpc3QiOltdfQ==
+        `);
+      });
+      server.addHtmlRoute(
+        '/index.html',
+        `<script src="${server.getRoute('/main.min.js')}"></script>`,
+      );
+
+      await withMcpContext(async (response, context) => {
+        const page = await context.newPage();
+        await page.goto(server.getRoute('/index.html'));
+
+        await getConsoleMessage.handler(
+          {params: {msgid: 1}},
+          response,
+          context,
+        );
+        const formattedResponse = await response.handle('test', context);
+        const rawText = getTextContent(formattedResponse.content[0]);
+
+        t.assert.snapshot?.(rawText);
+      });
+    });
+
+    it('applies source maps to stack traces of Error object (with cause) console.log arguments', async t => {
+      server.addRoute('/main.min.js', (_req, res) => {
+        res.setHeader('Content-Type', 'text/javascript');
+        res.statusCode = 200;
+        res.end(`function o(){throw new Error("b00m!")}function r(){try{o()}catch(o){throw new Error("bar failed",{cause:o})}}(function o(){try{r()}catch(o){console.log("foo failed",o)}})();
+          //# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJiYXIiLCJFcnJvciIsImZvbyIsImUiLCJjYXVzZSIsIklpZmUiLCJjb25zb2xlIiwibG9nIl0sInNvdXJjZXMiOlsiLi9tYWluLmpzIl0sInNvdXJjZXNDb250ZW50IjpbIlxuZnVuY3Rpb24gYmFyKCkge1xuICB0aHJvdyBuZXcgRXJyb3IoJ2IwMG0hJyk7XG59XG5cbmZ1bmN0aW9uIGZvbygpIHtcbiAgdHJ5IHtcbiAgICBiYXIoKTtcbiAgfSBjYXRjaCAoZSkge1xuICAgIHRocm93IG5ldyBFcnJvcignYmFyIGZhaWxlZCcsIHsgY2F1c2U6IGUgfSk7XG4gIH1cbn1cblxuKGZ1bmN0aW9uIElpZmUoKSB7XG4gIHRyeSB7XG4gICAgZm9vKCk7XG4gIH0gY2F0Y2ggKGUpIHtcbiAgICBjb25zb2xlLmxvZygnZm9vIGZhaWxlZCcsIGUpO1xuICB9XG59KSgpO1xuXG4iXSwibWFwcGluZ3MiOiJBQUNBLFNBQVNBLElBQ1AsTUFBTSxJQUFJQyxNQUFNLFFBQ2xCLENBRUEsU0FBU0MsSUFDUCxJQUNFRixHQUNGLENBQUUsTUFBT0csR0FDUCxNQUFNLElBQUlGLE1BQU0sYUFBYyxDQUFFRyxNQUFPRCxHQUN6QyxDQUNGLEVBRUEsU0FBVUUsSUFDUixJQUNFSCxHQUNGLENBQUUsTUFBT0MsR0FDUEcsUUFBUUMsSUFBSSxhQUFjSixFQUM1QixDQUNELEVBTkQiLCJpZ25vcmVMaXN0IjpbXX0=
+        `);
+      });
+      server.addHtmlRoute(
+        '/index.html',
+        `<script src="${server.getRoute('/main.min.js')}"></script>`,
+      );
+
+      await withMcpContext(async (response, context) => {
+        const page = await context.newPage();
+        await page.goto(server.getRoute('/index.html'));
+
+        await getConsoleMessage.handler(
+          {params: {msgid: 1}},
+          response,
+          context,
+        );
+        const formattedResponse = await response.handle('test', context);
+        const rawText = getTextContent(formattedResponse.content[0]);
+
+        t.assert.snapshot?.(rawText);
+      });
+    });
+
+    it('ignores frames from ignore listed URLs', async t => {
+      server.addHtmlRoute(
+        '/index.html',
+        `<!DOCTYPE html>
+         <script>
+         function ignoredFn1(cb) {
+          ignoredFn2(cb);
+         }
+
+         function ignoredFn2(cb) {
+          cb();
+         }
+         //# sourceURL=./node_modules/foo.js
+         </script>
+         <script>
+          function callback() {
+            console.log('hello from callback');
+          }
+
+          (function callIt() {
+            ignoredFn1(callback);
+          })();
+         //# sourceURL='main.js'
+         </script>
+        `,
+      );
+
+      await withMcpContext(async (response, context) => {
+        const page = await context.newPage();
+        await page.goto(server.getRoute('/index.html'));
+
+        await getConsoleMessage.handler(
+          {params: {msgid: 1}},
+          response,
+          context,
+        );
+        const formattedResponse = await response.handle('test', context);
+        const rawText = getTextContent(formattedResponse.content[0]);
+
+        t.assert.snapshot?.(rawText);
       });
     });
   });

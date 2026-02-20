@@ -55,6 +55,8 @@ export async function withBrowser(
     devtools: options.autoOpenDevTools ?? false,
     pipe: true,
     handleDevToolsAsPage: true,
+    args: ['--screen-info={3840x2160}'],
+    enableExtensions: true,
   };
   const key = JSON.stringify(launchOptions);
 
@@ -78,7 +80,11 @@ export async function withBrowser(
 
 export async function withMcpContext(
   cb: (response: McpResponse, context: McpContext) => Promise<void>,
-  options: {debug?: boolean; autoOpenDevTools?: boolean} = {},
+  options: {
+    debug?: boolean;
+    autoOpenDevTools?: boolean;
+    performanceCrux?: boolean;
+  } = {},
 ) {
   await withBrowser(async browser => {
     const response = new McpResponse();
@@ -90,6 +96,7 @@ export async function withMcpContext(
       logger('test'),
       {
         experimentalDevToolsDebugging: false,
+        performanceCrux: options.performanceCrux ?? true,
       },
       Locator,
     );
@@ -100,6 +107,7 @@ export async function withMcpContext(
 
 export function getMockRequest(
   options: {
+    url?: string;
     method?: string;
     response?: HTTPResponse;
     failure?: HTTPRequest['failure'];
@@ -110,11 +118,12 @@ export function getMockRequest(
     stableId?: number;
     navigationRequest?: boolean;
     frame?: Frame;
+    redirectChain?: HTTPRequest[];
   } = {},
 ): HTTPRequest {
   return {
     url() {
-      return 'http://example.com';
+      return options.url ?? 'http://example.com';
     },
     method() {
       return options.method ?? 'GET';
@@ -143,7 +152,7 @@ export function getMockRequest(
       };
     },
     redirectChain(): HTTPRequest[] {
-      return [];
+      return options.redirectChain ?? [];
     },
     isNavigationRequest() {
       return options.navigationRequest ?? false;
@@ -163,6 +172,9 @@ export function getMockResponse(
   return {
     status() {
       return options.status ?? 200;
+    },
+    headers(): Record<string, string> {
+      return {};
     },
   } as HTTPResponse;
 }
@@ -188,6 +200,27 @@ export function html(
 </html>`;
 }
 
+export function stabilizeStructuredContent(content: unknown): unknown {
+  if (typeof content === 'string') {
+    return stabilizeResponseOutput(content);
+  }
+  if (Array.isArray(content)) {
+    return content.map(item => stabilizeStructuredContent(item));
+  }
+  if (typeof content === 'object' && content !== null) {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(content)) {
+      if (key === 'snapshotFilePath' && typeof value === 'string') {
+        result[key] = '<file>';
+      } else {
+        result[key] = stabilizeStructuredContent(value);
+      }
+    }
+    return result;
+  }
+  return content;
+}
+
 export function stabilizeResponseOutput(text: unknown) {
   if (typeof text !== 'string') {
     throw new Error('Input must be string');
@@ -211,6 +244,10 @@ export function stabilizeResponseOutput(text: unknown) {
 
   const savedSnapshot = /Saved snapshot to (.*)/g;
   output = output.replaceAll(savedSnapshot, 'Saved snapshot to <file>');
+
+  const acceptLanguageRegEx = /accept-language:.*\n/g;
+  output = output.replaceAll(acceptLanguageRegEx, 'accept-language:<lang>\n');
+
   return output;
 }
 
@@ -250,6 +287,7 @@ export function getMockPage(): Page {
     send: () => {
       // no-op
     },
+    target: () => ({_targetId: '<mock target ID>'}),
   };
   return {
     mainFrame() {

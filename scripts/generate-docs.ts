@@ -6,7 +6,10 @@
 
 import fs from 'node:fs';
 
+import {Client} from '@modelcontextprotocol/sdk/client/index.js';
+import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import type {Tool} from '@modelcontextprotocol/sdk/types.js';
+import {get_encoding} from 'tiktoken';
 
 import {cliOptions} from '../build/src/cli.js';
 import {ToolCategory, labels} from '../build/src/tools/categories.js';
@@ -15,11 +18,48 @@ import {tools} from '../build/src/tools/tools.js';
 const OUTPUT_PATH = './docs/tool-reference.md';
 const README_PATH = './README.md';
 
+async function measureServer() {
+  // 1. Connect to your actual MCP server
+  const transport = new StdioClientTransport({
+    command: 'node',
+    args: ['./build/src/index.js'], // Point to your built MCP server
+  });
+
+  const client = new Client(
+    {name: 'measurer', version: '1.0.0'},
+    {capabilities: {}},
+  );
+  await client.connect(transport);
+
+  // 2. Fetch all tools
+  const toolsList = await client.listTools();
+
+  // 3. Serialize exactly how an LLM would see it (JSON)
+  const jsonString = JSON.stringify(toolsList.tools, null, 2);
+
+  // 4. Count tokens (using cl100k_base which is standard for GPT-4/Claude-3.5 approximation)
+  const enc = get_encoding('cl100k_base');
+  const tokenCount = enc.encode(jsonString).length;
+
+  console.log(`--- Measurement Results ---`);
+  console.log(`Total Tools: ${toolsList.tools.length}`);
+  console.log(`JSON Character Count: ${jsonString.length}`);
+  console.log(`Estimated Token Count: ~${tokenCount}`);
+
+  // Clean up
+  enc.free();
+  await client.close();
+  return {
+    tokenCount,
+  };
+}
+
 // Extend the MCP Tool type to include our annotations
 interface ToolWithAnnotations extends Tool {
   annotations?: {
     title?: string;
     category?: typeof ToolCategory;
+    conditions?: string[];
   };
 }
 
@@ -212,15 +252,23 @@ function getZodTypeInfo(schema: ZodSchema): TypeInfo {
       defaultValue = def.defaultValue();
     }
     const next = def.innerType || def.schema;
-    if (!next) break;
+    if (!next) {
+      break;
+    }
     schema = next;
     def = schema._def;
-    if (!description && schema.description) description = schema.description;
+    if (!description && schema.description) {
+      description = schema.description;
+    }
   }
 
   const result: TypeInfo = {type: 'unknown'};
-  if (description) result.description = description;
-  if (defaultValue !== undefined) result.default = defaultValue;
+  if (description) {
+    result.description = description;
+  }
+  if (defaultValue !== undefined) {
+    result.default = defaultValue;
+  }
 
   switch (def.typeName) {
     case 'ZodString':
@@ -253,7 +301,9 @@ function getZodTypeInfo(schema: ZodSchema): TypeInfo {
 function isRequired(schema: ZodSchema): boolean {
   let def = schema._def;
   while (def.typeName === 'ZodEffects') {
-    if (!def.schema) break;
+    if (!def.schema) {
+      break;
+    }
     schema = def.schema;
     def = schema._def;
   }
@@ -265,38 +315,47 @@ async function generateToolDocumentation(): Promise<void> {
     console.log('Generating tool documentation from definitions...');
 
     // Convert ToolDefinitions to ToolWithAnnotations
-    const toolsWithAnnotations: ToolWithAnnotations[] = tools.map(tool => {
-      const properties: Record<string, TypeInfo> = {};
-      const required: string[] = [];
-
-      for (const [key, schema] of Object.entries(
-        tool.schema as unknown as Record<string, ZodSchema>,
-      )) {
-        const info = getZodTypeInfo(schema);
-        properties[key] = info;
-        if (isRequired(schema)) {
-          required.push(key);
+    const toolsWithAnnotations: ToolWithAnnotations[] = tools
+      .filter(tool => {
+        if (!tool.annotations.conditions) {
+          return true;
         }
-      }
 
-      return {
-        name: tool.name,
-        description: tool.description,
-        inputSchema: {
-          type: 'object',
-          properties,
-          required,
-        },
-        annotations: tool.annotations,
-      };
-    });
+        // Only include unconditional tools.
+        return tool.annotations.conditions.length === 0;
+      })
+      .map(tool => {
+        const properties: Record<string, TypeInfo> = {};
+        const required: string[] = [];
+
+        for (const [key, schema] of Object.entries(
+          tool.schema as unknown as Record<string, ZodSchema>,
+        )) {
+          const info = getZodTypeInfo(schema);
+          properties[key] = info;
+          if (isRequired(schema)) {
+            required.push(key);
+          }
+        }
+
+        return {
+          name: tool.name,
+          description: tool.description,
+          inputSchema: {
+            type: 'object',
+            properties,
+            required,
+          },
+          annotations: tool.annotations,
+        };
+      });
 
     console.log(`Found ${toolsWithAnnotations.length} tools`);
 
     // Generate markdown documentation
     let markdown = `<!-- AUTO GENERATED DO NOT EDIT - run 'npm run docs' to update-->
 
-# Chrome DevTools MCP Tool Reference
+# Chrome DevTools MCP Tool Reference (~${(await measureServer()).tokenCount} cl100k_base tokens)
 
 `;
 
@@ -316,9 +375,15 @@ async function generateToolDocumentation(): Promise<void> {
       const aIndex = categoryOrder.indexOf(a);
       const bIndex = categoryOrder.indexOf(b);
       // Put known categories first, unknown categories last
-      if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
-      if (aIndex === -1) return 1;
-      if (bIndex === -1) return -1;
+      if (aIndex === -1 && bIndex === -1) {
+        return a.localeCompare(b);
+      }
+      if (aIndex === -1) {
+        return 1;
+      }
+      if (bIndex === -1) {
+        return -1;
+      }
       return aIndex - bIndex;
     });
 
@@ -377,8 +442,12 @@ async function generateToolDocumentation(): Promise<void> {
           const propertyNames = Object.keys(properties).sort((a, b) => {
             const aRequired = required.includes(a);
             const bRequired = required.includes(b);
-            if (aRequired && !bRequired) return -1;
-            if (!aRequired && bRequired) return 1;
+            if (aRequired && !bRequired) {
+              return -1;
+            }
+            if (!aRequired && bRequired) {
+              return 1;
+            }
             return a.localeCompare(b);
           });
           for (const propName of propertyNames) {
