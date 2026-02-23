@@ -31,7 +31,7 @@ import {tools} from './tools/tools.js';
 
 // If moved update release-please config
 // x-release-please-start-version
-const VERSION = '0.17.3';
+const VERSION = '0.17.4';
 // x-release-please-end
 
 export const args = parseArguments(VERSION);
@@ -77,7 +77,10 @@ server.server.setRequestHandler(SetLevelRequestSchema, () => {
 
 let context: McpContext;
 async function getContext(): Promise<McpContext> {
-  const chromeArgs: string[] = (args.chromeArg ?? []).map(String);
+  const chromeArgs: string[] = [
+    ...(args.chromeArg ?? []).map(String),
+    ...((args.chromeArgs as string[] | undefined) ?? []).map(String),
+  ];
   const ignoreDefaultChromeArgs: string[] = (
     args.ignoreDefaultChromeArg ?? []
   ).map(String);
