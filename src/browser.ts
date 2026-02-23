@@ -179,10 +179,9 @@ export async function launch(options: McpLaunchOptions): Promise<Browser> {
     ...(options.chromeArgs ?? []),
     '--hide-crash-restore-bubble',
   ];
-  const ignoreDefaultArgs: LaunchOptions['ignoreDefaultArgs'] =
-    options.stealth
-      ? [...(options.ignoreDefaultChromeArgs ?? []), '--enable-automation']
-      : options.ignoreDefaultChromeArgs ?? false;
+  const ignoreDefaultArgs: LaunchOptions['ignoreDefaultArgs'] = options.stealth
+    ? [...(options.ignoreDefaultChromeArgs ?? []), '--enable-automation']
+    : (options.ignoreDefaultChromeArgs ?? false);
 
   // Add stealth-enhancing arguments if stealth mode is enabled
   if (options.stealth) {
