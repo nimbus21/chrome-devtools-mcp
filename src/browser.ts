@@ -25,6 +25,35 @@ puppeteerExtra.use(StealthPlugin());
 
 let browser: Browser | undefined;
 
+/**
+ * Close the browser instance, killing the Chrome process if we launched it.
+ * Safe to call multiple times or when no browser exists.
+ */
+export async function closeBrowser(): Promise<void> {
+  if (!browser) {
+    return;
+  }
+  const b = browser;
+  browser = undefined;
+  try {
+    if (b.connected) {
+      // browser.close() sends a Browser.close CDP command and kills the process
+      // if it was launched by puppeteer. For connected browsers it just disconnects.
+      await b.close();
+    }
+  } catch {
+    // Best-effort: if close fails, try to kill the process directly
+    try {
+      const proc = b.process();
+      if (proc && !proc.killed) {
+        proc.kill('SIGKILL');
+      }
+    } catch {
+      // Nothing more we can do
+    }
+  }
+}
+
 function makeTargetFilter() {
   const ignoredPrefixes = new Set([
     'chrome://',

@@ -9,7 +9,7 @@ import './polyfill.js';
 import process from 'node:process';
 
 import type {Channel} from './browser.js';
-import {ensureBrowserConnected, ensureBrowserLaunched} from './browser.js';
+import {closeBrowser, ensureBrowserConnected, ensureBrowserLaunched} from './browser.js';
 import {cliOptions, parseArguments} from './cli.js';
 import {loadIssueDescriptions} from './issue-descriptions.js';
 import {logger, saveLogsToFile} from './logger.js';
@@ -262,6 +262,46 @@ await loadIssueDescriptions();
 const transport = new StdioServerTransport();
 await server.connect(transport);
 logger('Chrome DevTools MCP Server connected');
+
+// Graceful shutdown: kill Chrome when the MCP server exits for any reason.
+let shuttingDown = false;
+async function gracefulShutdown(reason: string) {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+  logger(`Shutting down: ${reason}`);
+  try {
+    context?.dispose();
+  } catch {
+    // best-effort
+  }
+  try {
+    await closeBrowser();
+  } catch {
+    // best-effort
+  }
+  logger('Shutdown complete');
+  process.exit(0);
+}
+
+// Handle OS signals (container stop, systemd, Ctrl+C)
+for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
+  process.on(signal, () => {
+    void gracefulShutdown(`received ${signal}`);
+  });
+}
+
+// Handle MCP client disconnect (transport/server close)
+server.server.onclose = () => {
+  void gracefulShutdown('MCP client disconnected');
+};
+
+// Handle stdin closing (parent process died)
+process.stdin.on('close', () => {
+  void gracefulShutdown('stdin closed');
+});
+
 logDisclaimers();
 void clearcutLogger?.logDailyActiveIfNeeded();
 void clearcutLogger?.logServerStart(computeFlagUsage(args, cliOptions));
