@@ -141,9 +141,18 @@ export class McpContext implements Context {
   // Idle page reaper: tracks last activity time per page.
   static readonly PAGE_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
   static readonly IDLE_CHECK_INTERVAL_MS = 60 * 1000; // 60 seconds
+  static readonly #INTERNAL_URL_PREFIXES = [
+    'about:',
+    'chrome://',
+    'chrome-extension://',
+    'chrome-untrusted://',
+    'devtools://',
+  ];
   #pageLastActivity = new Map<Page, number>();
   #idleReaperTimer?: ReturnType<typeof setInterval>;
   #onIdleBrowserEmpty?: () => void;
+  // Tracks when we first noticed only internal pages remaining.
+  #onlyInternalPagesSince?: number;
 
   #uniqueBackendNodeIdToMcpId = new Map<string, string>();
 
@@ -195,6 +204,8 @@ export class McpContext implements Context {
    */
   touchPage(page: Page): void {
     this.#pageLastActivity.set(page, Date.now());
+    // A user is interacting with a page — reset the internal-only timer.
+    this.#onlyInternalPagesSince = undefined;
   }
 
   /**
@@ -234,6 +245,13 @@ export class McpContext implements Context {
     }
   }
 
+  static #isInternalPage(page: Page): boolean {
+    const url = page.url();
+    return McpContext.#INTERNAL_URL_PREFIXES.some(prefix =>
+      url.startsWith(prefix),
+    );
+  }
+
   async #reapIdlePages(): Promise<void> {
     const now = Date.now();
     const idleTimeout = McpContext.PAGE_IDLE_TIMEOUT_MS;
@@ -245,8 +263,21 @@ export class McpContext implements Context {
       return; // Browser may be disconnected.
     }
 
+    // Also get ALL pages from the browser (including those filtered by
+    // createPagesSnapshot) so we can detect internal-only state.
+    let allBrowserPages: Page[];
+    try {
+      allBrowserPages = await this.browser.pages(true);
+    } catch {
+      return;
+    }
+
     const pagesToClose: Page[] = [];
     for (const page of pages) {
+      // Skip internal pages — they can't be closed and will respawn.
+      if (McpContext.#isInternalPage(page)) {
+        continue;
+      }
       const lastActivity = this.#pageLastActivity.get(page);
       // Pages without a recorded timestamp get one now (first seen).
       if (lastActivity === undefined) {
@@ -258,11 +289,7 @@ export class McpContext implements Context {
       }
     }
 
-    if (pagesToClose.length === 0) {
-      return;
-    }
-
-    // Close idle pages. If ALL pages are idle, close them all.
+    // Close idle user pages.
     for (const page of pagesToClose) {
       try {
         this.logger(
@@ -275,15 +302,49 @@ export class McpContext implements Context {
       }
     }
 
-    // Refresh after closing.
+    // Re-check all browser pages to determine if only internal pages remain.
     try {
-      pages = await this.createPagesSnapshot();
+      allBrowserPages = await this.browser.pages(true);
     } catch {
-      pages = [];
+      allBrowserPages = [];
     }
 
-    if (pages.length === 0 && this.#onIdleBrowserEmpty) {
+    const hasUserPages = allBrowserPages.some(
+      p => !p.isClosed() && !McpContext.#isInternalPage(p),
+    );
+
+    if (hasUserPages) {
+      // User pages still exist — reset the internal-only timer.
+      this.#onlyInternalPagesSince = undefined;
+      return;
+    }
+
+    // Only internal pages (or no pages) remain.
+    if (!this.#onIdleBrowserEmpty) {
+      return;
+    }
+
+    if (allBrowserPages.length === 0) {
+      // Truly empty — kill immediately.
       this.logger('All pages closed by idle reaper, triggering browser cleanup');
+      this.#onIdleBrowserEmpty();
+      return;
+    }
+
+    // Internal pages only — start or check the grace timer.
+    if (this.#onlyInternalPagesSince === undefined) {
+      this.#onlyInternalPagesSince = now;
+      this.logger(
+        `Only internal pages remain (${allBrowserPages.length}), starting ${idleTimeout / 1000}s grace period`,
+      );
+      return;
+    }
+
+    if (now - this.#onlyInternalPagesSince > idleTimeout) {
+      this.logger(
+        `Only internal pages for ${Math.round((now - this.#onlyInternalPagesSince) / 1000)}s, triggering browser cleanup`,
+      );
+      this.#onlyInternalPagesSince = undefined;
       this.#onIdleBrowserEmpty();
     }
   }
