@@ -116,10 +116,19 @@ async function getContext(): Promise<McpContext> {
         });
 
   if (context?.browser !== browser) {
+    // Stop the old reaper before creating a new context.
+    context?.stopIdlePageReaper();
     context = await McpContext.from(browser, logger, {
       experimentalDevToolsDebugging: devtools,
       experimentalIncludeAllPages: args.experimentalIncludeAllPages,
       performanceCrux: args.performanceCrux,
+    });
+    // Start idle page reaper: closes pages idle for 5+ minutes.
+    // When all pages are closed, kill the browser entirely.
+    // On the next tool call, getContext() will relaunch transparently.
+    context.startIdlePageReaper(() => {
+      logger('Idle reaper: all pages closed, shutting down browser');
+      void closeBrowser();
     });
   }
   return context;
@@ -201,6 +210,12 @@ function registerTool(tool: ToolDefinition): void {
         logger(`${tool.name} request: ${JSON.stringify(params, null, '  ')}`);
         const context = await getContext();
         logger(`${tool.name} context: resolved`);
+        // Mark the selected page as active to prevent idle reaper from closing it.
+        try {
+          context.touchPage(context.getSelectedPage());
+        } catch {
+          // No page selected yet — that's fine.
+        }
         await context.detectOpenDevToolsWindows();
         const response = new McpResponse();
         await tool.handler(
