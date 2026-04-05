@@ -1,6 +1,6 @@
 {
   "name": "@nimbus21.ai/chrome-devtools-mcp",
-  "version": "0.17.5",
+  "version": "0.17.6",
   "description": "MCP server for Chrome DevTools with stealth mode support",
   "type": "module",
   "bin": "./build/src/index.js",
