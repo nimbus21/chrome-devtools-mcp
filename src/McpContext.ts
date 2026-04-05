@@ -138,6 +138,13 @@ export class McpContext implements Context {
   #locatorClass: typeof Locator;
   #options: McpContextOptions;
 
+  // Idle page reaper: tracks last activity time per page.
+  static readonly PAGE_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+  static readonly IDLE_CHECK_INTERVAL_MS = 60 * 1000; // 60 seconds
+  #pageLastActivity = new Map<Page, number>();
+  #idleReaperTimer?: ReturnType<typeof setInterval>;
+  #onIdleBrowserEmpty?: () => void;
+
   #uniqueBackendNodeIdToMcpId = new Map<string, string>();
 
   private constructor(
@@ -177,9 +184,108 @@ export class McpContext implements Context {
   }
 
   dispose() {
+    this.stopIdlePageReaper();
     this.#networkCollector.dispose();
     this.#consoleCollector.dispose();
     this.#devtoolsUniverseManager.dispose();
+  }
+
+  /**
+   * Record activity on a page, resetting its idle timer.
+   */
+  touchPage(page: Page): void {
+    this.#pageLastActivity.set(page, Date.now());
+  }
+
+  /**
+   * Record activity on all currently tracked pages.
+   */
+  touchAllPages(): void {
+    const now = Date.now();
+    for (const page of this.#pages) {
+      this.#pageLastActivity.set(page, now);
+    }
+  }
+
+  /**
+   * Start the periodic idle page reaper.
+   * @param onBrowserEmpty - called when all pages have been closed by the reaper.
+   */
+  startIdlePageReaper(onBrowserEmpty?: () => void): void {
+    this.#onIdleBrowserEmpty = onBrowserEmpty;
+    // Initialize activity timestamps for all existing pages.
+    const now = Date.now();
+    for (const page of this.#pages) {
+      if (!this.#pageLastActivity.has(page)) {
+        this.#pageLastActivity.set(page, now);
+      }
+    }
+    this.#idleReaperTimer = setInterval(() => {
+      void this.#reapIdlePages();
+    }, McpContext.IDLE_CHECK_INTERVAL_MS);
+    // Don't keep the process alive just for the reaper.
+    this.#idleReaperTimer.unref();
+  }
+
+  stopIdlePageReaper(): void {
+    if (this.#idleReaperTimer) {
+      clearInterval(this.#idleReaperTimer);
+      this.#idleReaperTimer = undefined;
+    }
+  }
+
+  async #reapIdlePages(): Promise<void> {
+    const now = Date.now();
+    const idleTimeout = McpContext.PAGE_IDLE_TIMEOUT_MS;
+    // Refresh page list from browser to get accurate state.
+    let pages: Page[];
+    try {
+      pages = await this.createPagesSnapshot();
+    } catch {
+      return; // Browser may be disconnected.
+    }
+
+    const pagesToClose: Page[] = [];
+    for (const page of pages) {
+      const lastActivity = this.#pageLastActivity.get(page);
+      // Pages without a recorded timestamp get one now (first seen).
+      if (lastActivity === undefined) {
+        this.#pageLastActivity.set(page, now);
+        continue;
+      }
+      if (now - lastActivity > idleTimeout) {
+        pagesToClose.push(page);
+      }
+    }
+
+    if (pagesToClose.length === 0) {
+      return;
+    }
+
+    // Close idle pages. If ALL pages are idle, close them all.
+    for (const page of pagesToClose) {
+      try {
+        this.logger(
+          `Closing idle page ${this.#pageIdMap.get(page)}: ${page.url()} (idle ${Math.round((now - (this.#pageLastActivity.get(page) ?? now)) / 1000)}s)`,
+        );
+        this.#pageLastActivity.delete(page);
+        await page.close({runBeforeUnload: false});
+      } catch {
+        // Page may already be closed.
+      }
+    }
+
+    // Refresh after closing.
+    try {
+      pages = await this.createPagesSnapshot();
+    } catch {
+      pages = [];
+    }
+
+    if (pages.length === 0 && this.#onIdleBrowserEmpty) {
+      this.logger('All pages closed by idle reaper, triggering browser cleanup');
+      this.#onIdleBrowserEmpty();
+    }
   }
 
   static async from(
@@ -265,7 +371,7 @@ export class McpContext implements Context {
   async newPage(background?: boolean): Promise<Page> {
     const page = await this.browser.newPage({background});
     await this.createPagesSnapshot();
-    this.selectPage(page);
+    this.selectPage(page); // Also touches the page via selectPage.
     this.#networkCollector.addPage(page);
     this.#consoleCollector.addPage(page);
     return page;
@@ -426,6 +532,7 @@ export class McpContext implements Context {
       });
     }
     this.#selectedPage = newPage;
+    this.touchPage(newPage);
     newPage.on('dialog', this.#dialogHandler);
     this.#updateSelectedPageTimeouts();
     void newPage.emulateFocusedPage(true).catch(error => {
